@@ -5,24 +5,24 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const escapeHtml = require('escape-html');
-// // Create and Deploy Your First Cloud Functions
-// // https://firebase.google.com/docs/functions/write-firebase-functions
-//
-// exports.helloWorld = functions.https.onRequest((request, response) => {
-//  response.send("Hello from Firebase!");
-// });
 
+
+//Inicializa con las credenciales del archivo, para poder
+//  escribir sobre firestore
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
     databaseURL: "https://testflutter-2a3a0.firebaseio.com"
 });
+
+//Inicializa las cosas necesarias
 const db = admin.firestore();
 const app = express();
 const main = express();
-const contactsCollection = 'contacts';
 
 app.use(cors({ origin: true }));
 
+//Función que retorna todos los registros que tengan el mismo nombre
+// que lo pasado por POST
 exports.api = functions.https.onRequest(async (req, res) =>{
     res.header('Content-Type', 'application/json');
     res.header('Access-Control-Allow-Origin', '*');
@@ -43,28 +43,7 @@ exports.api = functions.https.onRequest(async (req, res) =>{
       }
 });
 
-
-exports.api = functions.https.onRequest(async (req, res) =>{
-    res.header('Content-Type', 'application/json');
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-    const db = admin.firestore();
-    cosas = {};
-    console.log(req.query.nombre);
-    if (req.method === 'GET') {
-        var query = db.collection('garabatos').where('nombre', '==', req.query.nombre.toString());
-        var queryRes = await query.get().catch(err => { res.json(err); });
-        console.log(queryRes);
-        queryRes.forEach(doc => {
-            console.log(doc.data());
-            cosas[doc.id] = doc.data();
-        });
-
-        res.json(cosas);
-      }
-});
-
-
+//Función que le suma 1 al primer registro con nombre ingresado por POST
 exports.updateNumber = functions.https.onRequest(async (req, res) =>{
 
     //Headers necesarios para que funke la api rest
