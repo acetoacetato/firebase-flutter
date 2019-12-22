@@ -62,28 +62,35 @@ exports.updateNumber = functions.https.onRequest(async (req, res) =>{
         //En caso que el método no sea post, se manda error
         res.send('Faltan datos en la solicitud');
     }
+    //Se inicia una query
     var query = db.collection('garabatos').where('nombre', '==',nombre);
+
+    //Se ejecuta la query
     var queryRes = await query.get().catch(err => { res.json(err); });
 
-    //No se como obtener el primer item, asi que itero sobre los items
-    //  pero retorno respuesta del primero nomais.
-    queryRes.forEach(item => {
+    //Si no hay documentos que coincidan con ese nombre
+    if(queryRes.empty){
+        res.send(`Hello ${escapeHtml(nombre || 'World')}, no existes`);
+    }
 
-      //Esto es para ver los datos estos por los registros
-      //  de firebase
-      console.log(item.id);
-      console.log(item.data());
+    //Se obtiene el primer elemento de la query
+    var item = queryRes.docs[0];
+    
+    //Esto es para ver los datos estos por los registros
+    //  de firebase
+    console.log(item.id);
+    console.log(item.data());
 
-      //Uso el id del documento para actualizar la clave
-      //  "cantidad" con el valor+1
-      db.collection("garabatos").doc(item.id).update({
+    //Uso el id del documento para actualizar la clave
+    //  "cantidad" con el valor+1
+    db.collection("garabatos").doc(item.id).update({
         "cantidad": item.data().cantidad + 1
     });
 
-      //Mando una respuesta genérica, hay que ver como mandar su success piola
-      res.send(`Hello ${escapeHtml(nombre || 'World')} json = ${item.data().cantidad}!`);
-    });
-    res.send(`Hello ${escapeHtml(nombre || 'World')}, no existes`);
+    //Mando una respuesta genérica, hay que ver como mandar su success piola
+    res.send(`Hello ${escapeHtml(nombre || 'World')} json = ${item.data().cantidad + 1}!`);
+
+    
     
 });
 
