@@ -94,4 +94,105 @@ exports.updateNumber = functions.https.onRequest(async (req, res) =>{
     
 });
 
+exports.serviciosPopulares = functions.https.onRequest(async (req, res) => {
+    //Headers necesarios para que funke la api rest
+    res.header('Content-Type', 'application/json');
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+
+    //Referencia a la base de datos
+    const db = admin.firestore();
+    //if (req.method !== 'GET') {
+    //    //En caso que el método no sea post, se manda error
+    //    res.send('Debe ser GET');
+    //}
+
+    //Se inicia una query
+    var query = db.collection('Servicios').orderBy('solicitudes', "desc").limit(6);
+
+    //Se ejecuta la query
+    var queryRes = await query.get().catch(err => { res.json(err); });
+    var resultados = {servicios: []};
+    if(queryRes.empty){
+        res.send(JSON.stringify(resultados));
+    }
+    queryRes.forEach((doc) => {
+        resultados.servicios.push({id : doc.id, data: doc.data()});
+    });
+    res.send(resultados);
+
+});
+
+exports.agregaFavoritos = functions.https.onRequest(async (req, res) => {
+    if(req.method !== 'POST'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+    }
+
+    ({idUsr} = req.body);
+    ({idServ} = req.body);
+
+    if(idUsr === null || idServ === null){
+        res.send({'result' : 'error', 'message' : 'Faltan datos'});
+    }
+
+    var query = await db.collection('Usuarios').doc(idUsr).update({
+        serviciosFav: admin.firestore.FieldValue.arrayUnion(idServ)
+    }).catch(err => { res.send(err) });
+
+    res.send({'result' : 'success', 'message' : 'agregado correctamente'});
+
+});
+
+
+
+exports.eliminaFavoritos = functions.https.onRequest(async (req, res) => {
+    if(req.method !== 'POST'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+    }
+
+    ({idUsr} = req.body);
+    ({idServ} = req.body);
+
+    if(idUsr === null || idServ === null){
+        res.send({'result' : 'error', 'message' : 'Faltan datos'});
+    }
+
+    var query = await db.collection('Usuarios').doc(idUsr).update({
+        serviciosFav: admin.firestore.FieldValue.arrayRemove(idServ)
+    }).catch(err => { res.send(err) });
+
+    res.send({'result' : 'success', 'message' : 'eliminado correctamente'});
+
+});
+
+
+
+exports.historialPedidos = functions.https.onRequest(async (req, res) => {
+    const db = admin.firestore();
+
+    var idUsr = req.query.idUsr.toString();
+    console.log(idUsr);
+    if(req.query.idUsr === null){
+        res.send({'result': 'error', 'message' : 'faltan datos (idUsr)'});
+        return;
+    }
+    //TODO: agregar tipo de servicio y nombre del prestador al json
+    var query = db.collection('ServiciosRealizados').where('cliente', '==', idUsr).where('status', '==', 'realizado');
+    console.log(typeof(query));
+    queryRes = await query.get().catch((err) => { res.send(err)});
+    var servicios = {"servicios" : [] };
+    if(queryRes.empty){
+        console.log('vacio');
+        res.send(servicios);
+        return;
+    }else{
+        queryRes.forEach( (doc) => {
+            servicios.servicios.push({"id" : doc.id, "data" : doc.data()});
+        });
+    }
+
+    res.send(servicios);
+
+});
+
 
