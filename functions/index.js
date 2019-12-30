@@ -315,7 +315,7 @@ exports.pedirServicio = functions.https.onRequest(async (req, res) => {
     //Si todo es válido, se agrega y se manda success
     resultado = await db.collection('ServiciosRealizados').add(jsonServicio);
 
-    res.send({'result' : 'success', 'message' : 'solicitado correctamente'});
+    res.send({'result' : 'success', 'message' : 'solicitado correctamente', 'id' : resultado.id});
 });
 
 
@@ -661,8 +661,10 @@ exports.reAsignaUno = functions.firestore.document('ServiciosRealizados/{solId}'
         return "";
     });
     //TODO: Ver que hacer cuando un servicio rechazado no tiene a nadie que lo quiera hacer
-
-    console.log('termina');
+    //Si no está el flag, entonces no hay personas disponibles
+    if(!flag){
+        db.collection('ServiciosRealizados').doc(idSolicitud).update({trabajador : '', status : 'no_disponible'});
+    }
     return "";
 
 });
@@ -698,6 +700,37 @@ exports.reAsignaTodo = functions.firestore.document('ServiciosRealizados/{servic
         return "";
     });
 
+    if(!flag){
+        coleccion.forEach(doc2 => {
+            db.collection('ServiciosRealizados').doc(doc2.id).update({
+                trabajador : '',
+                status : 'no_disponible'
+            });
+        });
+    }
+
+    return;
+});
+
+exports.verSolicitud = functions.https.onRequest(async (req, res) => {
+    idSol = req.query.idSol;
+
+    if(req.method !== 'GET'){
+        res.send({'result' : 'error', 'message' : 'método incorrecto'});
+        return;
+    }
+
+
+    docRef = await db.collection('ServiciosRealizados').doc(idSol).get();
+    
+    status = docRef.data().status;
+
+    if(status === 'rechazado' || status === 'pendiente'){
+        res.send({'retult' : 'success', status : 'pendiente'});
+        return;
+    }
+
+    res.send({'status' : status});
 });
 
 
