@@ -226,14 +226,27 @@ exports.pedirServicio = functions.https.onRequest(async (req, res) => {
         res.send({'result' :  'error', 'message' : 'faltan datos (o emergencia o horaServicio)'});
     }
 
+    primero = await db.collection('Servicios').doc(idServ).collection('trabajadores').orderBy('ranking').get();
+    if(primero.empty){
+        res.send({'result' :  'error', 'message' : 'No existen trabajadores disponibles.'});
+    }
+    propuesto = primero.docs[0].id;
+    flag = false;
+    primero.forEach(doc => {
+        if(!flag && doc.data().disponible && !doc.data().bloqueado){
+            propuesto = doc.id;
+            flag = true;
+        }
+    });
     
+
     // Se forma el json a agregar eventualmente
     var jsonServicio = {
         'calificacion' : 0.0,
         'cliente' : idUsr,
         'servicio' : idServ,
         'status' : 'pendiente',
-        'trabajador' : '',
+        'trabajador' : propuesto.id,
         'emergencia' : emergencia,
         'precio' : 0,
         'fecha' : horaServ
@@ -363,7 +376,7 @@ exports.modoEmergencia = functions.https.onRequest(async (req, res) => {
     
     
 
-    res.send({'result' : 'success', 'message' : 'Cambiado correctamente'});
+    res.send({'result' : 'success', 'message' : 'Cambiado correctamente', 'valor' : !emergencia});
 });
 
 exports.realizarServicio = functions.https.onRequest(async (req, res) => {
@@ -414,13 +427,103 @@ exports.realizarServicio = functions.https.onRequest(async (req, res) => {
     });
 
     //Se agrega el servicio en las  
-    res.send({'result' : 'Success', 'Message' : 'Agregado correctamente'});
+    res.send({'result' : 'success', 'Message' : 'Agregado correctamente'});
 
 });
 
 
+//Recalcula los ranking
+exports.recalcula = functions.firestore.document('Servicios/{serviceId}/trabajadores/{uId}').onUpdate(async (snap, context) => {
+    datos = snap.after.data();
+    datosAntes = snap.before.data();
+
+    if(datos.precioEmer === datosAntes.precioEmer && datos.precioVisita === datosAntes.precioVisita && datos.calificacion === datosAntes.calificacion){
+        return 0;
+    }
+ 
+
+    idUsr = context.params.uId;
+    idServ = context.params.serviceId;
+    docServicio = await db.collection('Servicios').doc(idServ).get();
+    docTrabajadores = await db.collection('Servicios').doc(idServ).collection('trabajadores').get();
+    trabajoNuevo = await db.collection('Servicios').doc(idServ).collection('trabajadores').doc(idUsr).get();
+    cantSer = docServicio.data().cantServicios;
+    precioP = docServicio.data().precioProm;
+    precioPE = docServicio.data().precioPromE;
+    console.log(cantSer);
+    console.log(precioP);
+    console.log(precioPE);
+    console.log(trabajoNuevo);
+    console.log(docTrabajadores);
+
+    precioPromN = ((precioP * cantSer) + trabajoNuevo.data().precioVisita) / (cantSer + 1);
+    precioPromEmerN = ((precioPE * cantSer) + trabajoNuevo.data().precioEmer) / (cantSer + 1);
+
+    await db.collection('Servicios').doc(idServ).update({
+        precioProm : precioPromN,
+        precioPromE : precioPromEmerN,
+        cantServicios : cantSer + 1
+    });
+
+    //Se actualizan todos los puntajes.
+    docTrabajadores.forEach(doc => {
+        db.collection('Servicios').doc(idServ).collection('trabajadores').doc(doc.id).update({
+            ranking : doc.data().calificacion + precioPromN/doc.data().precioVisita
+        });
+    });
+
+
+    return 0;
+});
+
+/*
+exports.functionTest = functions.https.onRequest(async (req, res) => {
+    if(req.method !== 'POST'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+        return;
+    }
+    ({idServ} = req.body);
+    //El id del usuario es para confirmar que está autentificado
+    ({idUsr} = req.body);
+    if(idUsr === undefined || idServ === undefined){
+        res.send({'result' : 'error', 'message' : 'Faltan datos(idServ, idUsr)'});
+        return;
+    }
+
+    usrRef = await db.collection('Usuarios').doc(idUsr).get();
+    if(usrRef.empty){
+        res.send({'result' : 'error', 'message' : 'Usuario inexistente.'});
+        return;
+    }
+
+    docServicio = await db.collection('Servicios').doc(idServ).get();
+    docTabajadores = await db.collection('Servicios').doc(idServ).collection('trabajadores').get();
+    trabajoNuevo = await db.collection('Servicios').doc(idServ).collection('trabajadores').doc(idUsr).get();
+
+    cantSer = docServicio.data().cantServicios;
+    precioP = docServicio.data().precioProm;
+    precioPE = docServicio.data().precioPromEmergencia
+
+    precioPromN = ((precioP * cantSer) + trabajoNuevo.data().precioVisita) / (cantServ + 1);
+    precioPromEmerN = ((precioPE * cantSer) + trabajoNuevo.data().precioEmer) / (cantServ + 1);
+    // Se actualizan los precios promedios y la cantidad de servicios.
+    await db.collection('Servicios').doc(idServ).update({
+        precioProm : precioPromN,
+        precioPromEmergencia : precioPromEmerN,
+        cantServicios : cantSer + 1
+    });
+    //Se actualizan todos los puntajes.
+    docTabajadores.forEach(doc => {
+        db.collection('Servicios').doc(idServ).collection('trabajadores').doc(doc.id).update({
+            ranking : doc.data().calificacion + precioPromN/doc.data().precioVisita
+        });
+    });
+
+});*/
+
+
 exports.buscarTrabajo = functions.https.onRequest(async (req, res) => {
-    if(req.method !== 'GET'){
+    if(req.method !== 'POST'){
         res.send({'result' : 'error', 'message' : 'Método incorrecto.'});
         return;
     }
@@ -431,7 +534,222 @@ exports.buscarTrabajo = functions.https.onRequest(async (req, res) => {
         res.send({'result' : 'error', 'message' : 'Faltan datos (idUsr).'});
         return;
     }
-
     
+    usuario = await db.collection('Usuarios').doc(idUsr).get();
+
+    if(usuario.empty){
+        res.send({'result' : 'error', 'message' : 'Usuario inexistente'});
+    }
+
+    servicio = usuario.data().servicio;
+    if(servicio === ''){
+        res.send({'result' : 'error', 'message' : 'El usuario no tiene un servicio asociado'});
+    }
+
+    //Se obtienen las solicitudes del trabajador
+    solicitudes = await db.collection('ServiciosRealizados').where('trabajador', '==', idUsr).where('status', '==', 'pendiente').get();
+
+    if(solicitudes.empty){
+        res.send({'result' : 'error', 'message' : 'El usuario no tiene solicitudes.'});
+    }
+
+    solicitud = solicitudes.docs[0];
+
+    res.send(solicitud.id);
 });
 
+
+
+
+exports.aceptarSolicitud = functions.https.onRequest(async (req, res) => {
+    ({idUsr} = req.body);
+    ({idSol} = req.body);
+
+    if(req.method !== 'POST'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+        return;
+    }
+
+    if(idUsr === undefined || idSol === undefined){
+        res.send({'result' : 'error', 'message' : 'Faltan datos (idUSr, idSol)'});
+        return;
+    }
+
+    usuario = await db.collection('Usuarios').doc(idUsr).get();
+    if(usuario.empty){
+        res.send({'result' : 'error', 'message' : 'Usuario inexistente.'});
+        return;
+    }
+
+    if(!usuario.data().trabajador){
+        res.send({'result' : 'error', 'message' : 'Usuario no es trabajador.'});
+        return;
+    }
+
+    //Se actualiza el estado del servicio
+    db.collection('ServiciosRealizados').doc(idSol).update({estado: 'contratado'});
+    
+    //Se actualiza el estado del trabajador
+    db.collection('Usuarios').doc(idUsr).update({disponible : false});
+    res.send({'result' : 'success', 'message' : 'actualizado correctamente'});
+
+});
+
+
+
+
+exports.rechazarSolicitud = functions.https.onRequest(async (req, res) => {
+    ({idUsr} = req.body);
+    ({idSol} = req.body);
+
+    if(req.method !== 'POST'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+        return;
+    }
+
+    if(idUsr === undefined || idSol === undefined){
+        res.send({'result' : 'error', 'message' : 'Faltan datos (idUSr, idSol)'});
+        return;
+    }
+
+    usuario = await db.collection('Usuarios').doc(idUsr).get();
+    if(usuario.empty){
+        res.send({'result' : 'error', 'message' : 'Usuario inexistente.'});
+        return;
+    }
+
+    if(!usuario.data().trabajador){
+        res.send({'result' : 'error', 'message' : 'Usuario no es trabajador.'});
+        return;
+    }
+
+    await db.collection('ServiciosRealizados').doc(idSol).update({
+        status : 'rechazado'
+    });
+    res.send({'result' : 'success', 'message' : 'Rechazado correctamente.'});
+});
+
+exports.reAsignaUno = functions.firestore.document('ServiciosRealizados/{solId}').onUpdate(async (snap, context) => {
+    idSolicitud= context.params.solId;
+    servicio = await db.collection('ServiciosRealizados').doc(idSolicitud).get();
+    idRechazado = servicio.data().trabajador;
+    if(servicio.data().status !== 'rechazado'){
+        return "";
+    }
+    
+
+    trabajadores = await db.collection('Servicios').doc(servicio.data().servicio).collection('trabajadores').orderBy('ranking').get();
+    flag = false;
+    if(trabajadores.empty){
+        console.log("no hay nah");
+        return "";
+    }
+    trabajadores.forEach(doc => {
+        if(flag){
+            return "";
+        }
+        console.log(doc.id);
+        resultado = db.collection('Usuarios').doc(doc.id).get().then( trabajador => {
+            if(trabajador.data().disponible && !trabajador.data().bloqueado && trabajador.id !== idRechazado){
+                console.log('disponible');
+                flag = true;
+                db.collection('ServiciosRealizados').doc(idSolicitud).update({trabajador : doc.id, status : 'pendiente'});
+            }
+            return "";
+        }).catch(err => {return err});
+        console.log(resultado);
+        return "";
+    });
+    //TODO: Ver que hacer cuando un servicio rechazado no tiene a nadie que lo quiera hacer
+
+    console.log('termina');
+    return "";
+
+});
+
+//Esto se trigerea si se acepta
+exports.reAsignaTodo = functions.firestore.document('ServiciosRealizados/{serviceId}').onUpdate(async (snap, context) => {
+    idServicio = context.params.serviceId;
+    servicio = await db.collection('ServiciosRealizados').doc(idServicio).get();
+    if(servicio.data().status !== 'contratado'){
+        return;
+    }
+    coleccion = await db.collection('ServiciosRealizados').where('estado', '==', 'pendiente').where('trabajador', '==', servicio.id).get();
+    if(coleccion.empty){
+        return;
+    }
+
+    flag = false;
+    trabajadores = await db.collection('Servicios').doc(idServicio).orderBy('ranking').get();
+    trabajadores.forEach(doc => {
+        if(flag){
+            return "";
+        }
+
+        trabajador = db.collection('Usuarios').doc(doc.id).get();
+        if(trabajador.data().disponible && !trabajador.data().bloqueado){
+            flag = true;
+            coleccion.forEach(doc2 => {
+                db.collection('ServiciosRealizados').doc(doc2.id).update({
+                    trabajador : doc.id
+                });
+            });
+        }
+        return "";
+    });
+
+});
+
+
+
+exports.bloquearUsuario = functions.https.onCall(async (data, context) => {
+    
+    idUsr = data.idUsr;
+    idAdmin = data.idAdmin;
+
+    if(idUsr === undefined || idAdmin === undefined){
+        return {'result' : 'error', 'message' : 'Faltan datos (idUsr, idAdmin)'};
+    }
+
+    adminRef = await db.collection('Administradores').doc(idAdmin).get();
+    if(adminRef.empty){
+        return {'result' : 'error', 'message' : 'El admin no existe'};
+    }
+    usuarioRef = await db.collection('Usuarios').doc(idUsr).get();
+    if(usuarioRef.empty){
+        return {'result' : 'error', 'message' : 'El usuario no existe'};
+        
+    }
+    valor = usuarioRef.data().bloqueado;
+    db.collection('Usuarios').doc(idUsr).update({
+        bloqueado : !valor
+    });
+
+    return {'result' : 'success', 'message' : 'Bloqueo/Desbloqueo Realizado correctamente'};
+    
+});
+/**
+ * 
+ */
+
+exports.buscarUsuario = functions.https.onCall(async (data, context) => {
+    idAdmin = data.idAdmin;
+    idUsr = data.idUsr;
+
+    if(idUsr === undefined || idAdmin === undefined){
+        return {'result' : 'error', 'message' : 'Faltan datos (idUsr, idAdmin)'};
+    }
+
+    adminRef = await db.collection('Administradores').doc(idAdmin).get();
+    if(adminRef.empty){
+        return {'result' : 'error', 'message' : 'El admin no existe'};
+    }
+    usuarioRef = await db.collection('Usuarios').doc(idUsr).get();
+    if(usuarioRef.empty){
+        return {'result' : 'error', 'message' : 'El usuario no existe'};
+    }
+
+    return usuarioRef.data();
+
+
+});
