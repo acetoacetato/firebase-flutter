@@ -124,6 +124,33 @@ exports.serviciosPopulares = functions.https.onRequest(async (req, res) => {
 
 });
 
+exports.serviciosDisponibles = functions.https.onRequest(async (req, res) => {
+    //Referencia a la base de datos
+    const db = admin.firestore();
+    if (req.method !== 'GET') {
+        //En caso que el método no sea post, se manda error
+        res.send({'result' : 'error', 'message' : 'Método incorrecto.'});
+        return;
+    }
+
+    //Se inicia una query
+    var query = db.collection('Servicios').orderBy('solicitudes', "desc");
+
+    //Se ejecuta la query
+    var queryRes = await query.get().catch(err => { res.json(err); });
+    var resultados = {servicios: []};
+    if(queryRes.empty){
+        res.send(resultados);
+        return;
+    }
+    queryRes.forEach((doc) => {
+        resultados.servicios.push({id : doc.id, data: doc.data()});
+    });
+    res.send(resultados);
+
+});
+
+
 exports.agregaFavoritos = functions.https.onRequest(async (req, res) => {
     if(req.method !== 'POST'){
         res.send({'result' : 'error', 'message' : 'Método incorrecto'});
@@ -143,6 +170,8 @@ exports.agregaFavoritos = functions.https.onRequest(async (req, res) => {
     res.send({'result' : 'success', 'message' : 'agregado correctamente'});
 
 });
+
+
 
 
 
@@ -230,6 +259,11 @@ exports.pedirServicio = functions.https.onRequest(async (req, res) => {
     if(primero.empty){
         res.send({'result' :  'error', 'message' : 'No existen trabajadores disponibles.'});
     }
+
+    //Se le suma 1 a la cantidad de solicitudes
+    db.collection('Servicios').doc(idServ).update({
+        solicitudes : admin.firestore.FieldValue.increment(1)
+    });
     propuesto = primero.docs[0].id;
     flag = false;
     primero.forEach(doc => {
@@ -521,6 +555,78 @@ exports.functionTest = functions.https.onRequest(async (req, res) => {
 
 });*/
 
+exports.terminarTrabajo = functions.https.onRequest(async (req, res) => {
+    if(req.method !== 'POST'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+        return;
+    }
+    ({idUsr} = req.body);
+    ({idSol} = req.body);
+
+    if(idUsr === undefined || idSol === undefined){
+        res.send({'result' : 'error', 'message' : 'Faltan datos (idUsr, idSol)'});
+        return;
+    }
+
+    solicitud = await db.collection('ServiciosRealizados').doc(idSol).get();
+    if(solicitud.empty){
+        res.send({'result' : 'error', 'message' : 'Solicitud no existe'});
+        return;
+    }
+    servicio = await db.collection('Servicios').doc(solicitud.data().servicio).collection('trabajadores').doc(idUsr).get();
+
+    if(solicitud.data().trabajador !== idUsr){
+        res.send({'result' : 'error', 'message' : 'Trabajador no coincide'});
+        return;
+    }
+    precioT = (solicitud.data().emergencia)? servicio.data().precioE : servicio.data().precioVisita;
+    db.collection('ServiciosRealizados').doc(idSol).update({
+        status : 'realizado',
+        precio : precioT
+    });
+
+    db.collection('Usuarios').doc(idUsr).update({
+        disponible : true
+    });
+});
+
+exports.mandarCalificacion = functions.https.onRequest(async (req, res) => {
+    ({idUsr} = req.body);
+    ({idSol} = req.body);
+    ({cal} = req.body);
+
+    if(req.method !== 'POST'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+        return;
+    }
+
+    if(idUsr === undefined || idSol === undefined || cal === undefined){
+        res.send({'result' : 'error', 'message' : 'Faltan datos (idUsr, idSol, cal)'});
+        return;
+    }
+
+    solicitud = await db.collection('ServiciosRealizados').doc(idSol).get();
+    if(solicitud.empty){
+        res.send({'result' : 'error', 'message' : 'Solicitud no existe'});
+        return;
+    }
+    if(solicitud.data().status !== 'realizado' || solicitud.data().calificado === true){
+        res.send({'result' : 'error', 'message' : 'Servicio no terminado o ya calificado.'});
+        return;
+    }
+
+    servId = solicitud.data().servicio;
+    trabajadorId = solicitud.data().trabajador;
+    servicioRef = await db.collection('Servicios').doc(servId).collection('trabajadores').doc(trabajadorId).get();
+    servAntes = servicioRef.data();
+    calificacionN = ((servAntes.calificacion * servAntes.cantidadServ) + cal)/(servAntes.cantidadServ + 1);
+    db.collection('Servicios').doc(servId).collection('trabajadores').doc(trabajadorId).update({
+        calificacion : calificacionN,
+        cantServicios : servAntes.cantidadServ + 1
+    });
+    res.send({'result' : 'success', 'message' : 'Calificado correctamente'});
+});
+
 
 exports.buscarTrabajo = functions.https.onRequest(async (req, res) => {
     if(req.method !== 'POST'){
@@ -555,7 +661,7 @@ exports.buscarTrabajo = functions.https.onRequest(async (req, res) => {
 
     solicitud = solicitudes.docs[0];
 
-    res.send(solicitud.id);
+    res.send({ 'id' : solicitud.id, 'data' : solicitud.data()});
 });
 
 
@@ -587,7 +693,7 @@ exports.aceptarSolicitud = functions.https.onRequest(async (req, res) => {
     }
 
     //Se actualiza el estado del servicio
-    db.collection('ServiciosRealizados').doc(idSol).update({estado: 'contratado'});
+    db.collection('ServiciosRealizados').doc(idSol).update({status: 'contratado'});
     
     //Se actualiza el estado del trabajador
     db.collection('Usuarios').doc(idUsr).update({disponible : false});
@@ -669,6 +775,8 @@ exports.reAsignaUno = functions.firestore.document('ServiciosRealizados/{solId}'
 
 });
 
+
+
 //Esto se trigerea si se acepta
 exports.reAsignaTodo = functions.firestore.document('ServiciosRealizados/{serviceId}').onUpdate(async (snap, context) => {
     idServicio = context.params.serviceId;
@@ -676,7 +784,7 @@ exports.reAsignaTodo = functions.firestore.document('ServiciosRealizados/{servic
     if(servicio.data().status !== 'contratado'){
         return;
     }
-    coleccion = await db.collection('ServiciosRealizados').where('estado', '==', 'pendiente').where('trabajador', '==', servicio.id).get();
+    coleccion = await db.collection('ServiciosRealizados').where('status', '==', 'pendiente').where('trabajador', '==', servicio.id).get();
     if(coleccion.empty){
         return;
     }

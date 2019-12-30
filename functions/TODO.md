@@ -12,7 +12,9 @@
 - [x] Crear función extra, asincrona, que re calcule todos los puntajes para el ranking.
 - [x] Agregar precio promedio a servicios.
 - [x] Agregar Sistema para match
-- [ ] Agregar sistema para arreglar bloqueos.
+- [x] Agregar sistema para arreglar bloqueos.
+- [x] Obtener todos los servicios (trabajador).
+- [x] Terminar Trabajo (trabajador).
 
 PAra el match:
     Al crear la solicitud, colocar de nombre al prestador de servicio disponible con mejor ranking.
