@@ -95,6 +95,66 @@ exports.updateNumber = functions.https.onRequest(async (req, res) =>{
     
 });
 
+
+exports.registraUsuario = functions.https.onRequest(async (req, res) => {
+    if(req.method !== 'POST'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+        return;
+    }
+
+    ({idUsr} = req.body);
+    ({mail} = req.body);
+    ({nombre} = req.body);
+
+
+    if(idUsr === undefined || mail === undefined || nombre === undefined){
+        res.send({'result' : 'error', 'message' : 'Faltan datos (idUsr, mail, nombre)'});
+        return;
+    }
+
+    usuario = await db.collection('Usuarios').doc(idUsr).get();
+
+    if(usuario !== undefined){
+        res.send({'result' : 'error', 'message' : 'Uid ya existente'});
+        return;
+    }
+
+    await db.collection('Usuarios').doc(idUsr).set({
+        'nombre' : nombre,
+        'mail' : mail,
+        'serviciosFav' : false,
+        'favoritos' : [],
+        'bloqueado' : false
+    });
+
+    res.send({'result' : 'success', 'message' : 'Registrado orrectamente.'});
+});
+
+exports.datosUsuario = functions.https.onRequest(async (req, res) => {
+    if(req.method !== 'GET'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+        return;
+    }
+
+    idUsr = req.query.idUsr;
+
+
+    if(idUsr === undefined){
+        res.send({'result' : 'error', 'message' : 'Faltan datos (idUsr, mail, nombre)'});
+        return;
+    }
+
+    uaurio = await db.collection('Usuarios').doc(idUsr).get();
+
+    if(usuario === undefined){
+        res.send({'result' : 'error', 'message' : 'Usuario inexistente.'});
+        return;
+    }
+
+    res.send({'id' : usuario.id, 'data' : usuario.data()});
+});
+
+
 exports.serviciosPopulares = functions.https.onRequest(async (req, res) => {
     //Headers necesarios para que funke la api rest
     res.header('Content-Type', 'application/json');
@@ -127,10 +187,15 @@ exports.serviciosPopulares = functions.https.onRequest(async (req, res) => {
 exports.serviciosDisponibles = functions.https.onRequest(async (req, res) => {
     //Referencia a la base de datos
     const db = admin.firestore();
+    emergencia = req.query.emergencia;
     if (req.method !== 'GET') {
         //En caso que el método no sea post, se manda error
         res.send({'result' : 'error', 'message' : 'Método incorrecto.'});
         return;
+    }
+
+    if(emergencia === undefined){
+        res.send({'result' : 'error', 'message' : 'Faltan datos (emergencia)'});
     }
 
     //Se inicia una query
@@ -144,7 +209,18 @@ exports.serviciosDisponibles = functions.https.onRequest(async (req, res) => {
         return;
     }
     queryRes.forEach((doc) => {
-        resultados.servicios.push({id : doc.id, data: doc.data()});
+        datos = doc.data();
+        precioV = (emergencia)? datos.precioPromE:datos.precioProm;
+        cantS = (datos.cantServicios === undefined)? 0:datos.cantServicios;
+        resultados.servicios.push({
+            'id' : doc.id, 
+            'descripcion' : datos.descripcion,
+            'img_url' : datos.img_url,
+            'nombre' : datos.nombre,
+            'solicitudes' : datos.solicitudes,
+            'cantServicios' : cantS,
+            'precio' :  precioV
+        });
     });
     res.send(resultados);
 
@@ -193,6 +269,33 @@ exports.eliminaFavoritos = functions.https.onRequest(async (req, res) => {
 
     res.send({'result' : 'success', 'message' : 'eliminado correctamente'});
 
+});
+
+exports.verFavoritos = functions.https.onRequest(async (req, res) => {
+    if(req.method !== 'GET'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+        return;
+    }
+    idUsr = req.query.idUsr;
+
+    if(idUsr === null){
+        res.send({'result' : 'error', 'message' : 'Faltan datos'});
+        return;
+    }
+
+    favoritos = {'favoritos' : []};
+
+    coleccion = await db.collection(idUsr).get();
+    favs = coleccion.data().favoritos;
+
+    favs.forEach(id => {
+        db.collection('Servicios').doc(id).get().then(result => {
+            favoritos.favoritos.push({'id' : id, 'data' : datos.data()});
+            return "";
+        }).catch(err => { res.send(err) });        
+    });
+
+    res.send(favs);
 });
 
 
@@ -267,12 +370,18 @@ exports.pedirServicio = functions.https.onRequest(async (req, res) => {
     propuesto = primero.docs[0].id;
     flag = false;
     primero.forEach(doc => {
+        if(emergencia && !doc.data().emergencia){
+            return;
+        }
         if(!flag && doc.data().disponible && !doc.data().bloqueado){
             propuesto = doc.id;
             flag = true;
         }
     });
-    
+    if(!flag){
+        res.send({'result' : 'error', 'message' : 'No hay trabajadores disponibles'});
+        return;
+    }
 
     // Se forma el json a agregar eventualmente
     var jsonServicio = {
@@ -555,6 +664,29 @@ exports.functionTest = functions.https.onRequest(async (req, res) => {
 
 });*/
 
+exports.trabajosPendientes = functions.https.onRequest(async (req, res) => {
+    if(req.method !== 'GET'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+        return;
+    }
+    ({idUsr} = req.body);
+    if(idUsr === undefined){
+        res.send({'result' : 'error', 'message' : 'Faltan datos (idUsr)'});
+        return;
+    }
+
+    var trabajos = { 'trabajos' : [] };
+
+    coleccion = await db.collection('ServiciosRealizados').where('trabajador', '==', idUsr).where('status', '==', 'contratado').get();
+
+    coleccion.forEach(doc => {
+        trabajos.trabajos.push({'id' : doc.id, 'data' : doc.data()});
+    });
+
+    res.send(trabajos);
+    return;
+});
+
 exports.terminarTrabajo = functions.https.onRequest(async (req, res) => {
     if(req.method !== 'POST'){
         res.send({'result' : 'error', 'message' : 'Método incorrecto'});
@@ -693,12 +825,73 @@ exports.aceptarSolicitud = functions.https.onRequest(async (req, res) => {
     }
 
     //Se actualiza el estado del servicio
-    db.collection('ServiciosRealizados').doc(idSol).update({status: 'contratado'});
     
-    //Se actualiza el estado del trabajador
-    db.collection('Usuarios').doc(idUsr).update({disponible : false});
+    solicitudRef = await db.collection('ServiciosRealizados').doc(idSol).get();
+
+    //Si se ejecuta la función para empezar a realizar el servicio, entonces se le interpreta como uno de emergencia.
+    if(solicitudRef.data().status === 'contratado'){
+        db.collection('ServiciosRealizados').doc(idSol).update({status: 'en_camino'});
+        db.collection('Usuarios').doc(idUsr).update({disponible : false});
+    }
+    //Se actualiza el estado del trabajador *Solo si es emergencia*
+    if(solicitudRef.data().emergencia){
+        db.collection('ServiciosRealizados').doc(idSol).update({status: 'en_camino'});
+        db.collection('Usuarios').doc(idUsr).update({disponible : false});
+    }else{
+        db.collection('ServiciosRealizados').doc(idSol).update({status: 'contratado'});
+    }
     res.send({'result' : 'success', 'message' : 'actualizado correctamente'});
 
+});
+
+
+exports.verServicio = functions.https.onRequest(async (req, res) => {
+    idUsr = req.query.idUsr;
+    idServ = req.query.idServ;
+
+    if(req.method !== 'GET'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+        return;
+    }
+
+    if(idUsr === undefined || idServ === undefined){
+        res.send({'result' : 'error', 'message' : 'Faltan datos (idUSr, idServ)'});
+        return;
+    }
+
+    usuario = await db.collection('Usuarios').doc(idUsr).get();
+
+    if(usuario.empty){
+        res.send({'result' : 'error', 'message' : 'Usuario inexistente.'});
+        return;
+    }
+
+    servicio = await db.collection('Servicios').doc(idServ).get();
+
+    if(servicio.empty){
+        res.send({'result' : 'error', 'message' : 'Servicio inexistente.'});
+        return;
+    }
+
+    res.send({'id' : servicio.id, 'data' : servicio.data()});
+
+});
+
+exports.carousel = functions.https.onRequest(async (req, res) => {
+    if(req.method !== 'GET'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto.'});
+        return;
+    }
+
+    collectionRef = await db.collection('Carousel').get();
+    var retorno = {'datos' : []};
+
+    collectionRef.forEach( doc => {
+        datos = doc.data();
+        retorno.datos.push({'titulo' : datos.titulo, 'img_url' : datos.img});
+    });
+
+    res.send(retorno);
 });
 
 
@@ -756,6 +949,10 @@ exports.reAsignaUno = functions.firestore.document('ServiciosRealizados/{solId}'
         }
         console.log(doc.id);
         resultado = db.collection('Usuarios').doc(doc.id).get().then( trabajador => {
+            //Si el servicio es de emergencia pero el trabajador no quiere de ese tipo, se salta
+            if(servicio.data().emergencia && !trabajador.data().emergencia){
+                return "";
+            }
             if(trabajador.data().disponible && !trabajador.data().bloqueado && trabajador.id !== idRechazado){
                 console.log('disponible');
                 flag = true;
@@ -766,7 +963,7 @@ exports.reAsignaUno = functions.firestore.document('ServiciosRealizados/{solId}'
         console.log(resultado);
         return "";
     });
-    //TODO: Ver que hacer cuando un servicio rechazado no tiene a nadie que lo quiera hacer
+
     //Si no está el flag, entonces no hay personas disponibles
     if(!flag){
         db.collection('ServiciosRealizados').doc(idSolicitud).update({trabajador : '', status : 'no_disponible'});
@@ -777,11 +974,11 @@ exports.reAsignaUno = functions.firestore.document('ServiciosRealizados/{solId}'
 
 
 
-//Esto se trigerea si se acepta
+//Esto se trigerea si se acepta un servicio de emergencia o se empieza a trabajar en uno
 exports.reAsignaTodo = functions.firestore.document('ServiciosRealizados/{serviceId}').onUpdate(async (snap, context) => {
     idServicio = context.params.serviceId;
     servicio = await db.collection('ServiciosRealizados').doc(idServicio).get();
-    if(servicio.data().status !== 'contratado'){
+    if(servicio.data().status !== 'en_camino'){
         return;
     }
     coleccion = await db.collection('ServiciosRealizados').where('status', '==', 'pendiente').where('trabajador', '==', servicio.id).get();

@@ -15,6 +15,10 @@
 - [x] Agregar sistema para arreglar bloqueos.
 - [x] Obtener todos los servicios (trabajador).
 - [x] Terminar Trabajo (trabajador).
+- [x] Agregar mis servicios aún no terminados.
+- [x] verFavoritos.
+- [x] Falta estado en_camino
+- [x] AceptarServicio.
 
 PAra el match:
     Al crear la solicitud, colocar de nombre al prestador de servicio disponible con mejor ranking.

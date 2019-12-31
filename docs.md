@@ -24,6 +24,32 @@ Las rutas son las sgtes
 
 Estas rutas son para ser realizadas desde las vistas como usuario.
 
+### registraUsuario
+Agrega el usuario a la base de datos (previo debió hacerse el registro con el sdk de firebase).
+Sólo registrará usuarios normales (no trabajadores) por ahora.
+Via POST
+
+- Recibe:
+	> **idUsr**: el id del usuario
+	> **mail**: el mail del usuario
+	> **nombre**: nombre del usuario
+- Retorna:
+	> **result**: success o error
+	> **message**
+
+### datosUsuario
+via GET, retorna los datos del usuario especificado.
+
+- Recibe:
+  	> **idUsr**: el id del usuario
+- Retorna:
+	> **id**: id del usuario
+	> **data**: datos del usuario.
+
+### carousel
+Retorna los datos de la cosa de arriba de la vista.
+
+
  ### serviciosDisponibles
 Retorna una lista con todos los servicios disponibles en la aplicación.
 - Retorna:
@@ -74,6 +100,22 @@ Recibe el UID del usuario y el id del servicio, via POST. Elimina el servicio de
 
 Recibe el UID del usuario y el id del servicio, via POST. Agrega el servicio a la lista de favoritos del usuario.
 
+# verServicio
+
+Retorna los datos de un servicio específico.
+
+- Recibe:
+	> **idServ**: id del servicio.
+	> **idUsr**: id del usuario iniciado.
+- Retorna:
+	> cantServicios : La cantidad de trabajadores que ofrecen ese servicio.
+	> descripcion : la descripción del servicio.
+	> img_url: la url de la imágen de presentación.
+	> nombre: el nombre del servicio.
+	> precioProm: el precio promedio de las visitas por ese servicio.
+	> precioPromE: el precio promedio de visitas de emergencia.
+	> solicitudes: la cantidad total de solicitudes
+
   
 - Recibe
 	> **idUsr** : el id del usuario
@@ -81,7 +123,14 @@ Recibe el UID del usuario y el id del servicio, via POST. Agrega el servicio a l
 - Retorna:
 	> **result** : success o error
 	> **message**
-  
+### verFavoritos
+
+Recibe el UID del usuario, via GET. Retorna la lista de favoritos del usuario.
+
+- Recibe
+	> **idUsr**: el id del usuario
+- Retorna:
+	> **favoritos** : lista de servicios
 
 ### cancelarServicio
 
@@ -206,3 +255,23 @@ Da por terminado el trabajo, pasando a estar disponible.
 - Retorna:
 	> **result**: success o error
 	> **message**
+
+### terminarTrabajo
+Muestra los trabajos en los que está contratado y no ha comenzado.
+
+- Recibe:
+	> **idUsr**: el id del trabajador.
+	> **idSol**: el id del trabajo realizado.
+- Retorna:
+	> **result**: success o error
+	> **message**
+
+
+### trabajosPendientes
+
+Muestra los trabajos que el usuario ingresado está contratado.
+
+- Recibe:
+	> **idUsr**: el id del usuario.
+- Retorna:
+	> **trabajos** : lista de solicitudes.
