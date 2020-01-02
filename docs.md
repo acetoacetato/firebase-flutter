@@ -33,6 +33,7 @@ Via POST
 	> **idUsr**: el id del usuario
 	> **mail**: el mail del usuario
 	> **nombre**: nombre del usuario
+	> **nacimiento**: fecha de nacimiento
 - Retorna:
 	> **result**: success o error
 	> **message**

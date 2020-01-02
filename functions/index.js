@@ -105,6 +105,7 @@ exports.registraUsuario = functions.https.onRequest(async (req, res) => {
     ({idUsr} = req.body);
     ({mail} = req.body);
     ({nombre} = req.body);
+    ({nacimiento} = req.body);
 
 
     if(idUsr === undefined || mail === undefined || nombre === undefined){
@@ -122,8 +123,8 @@ exports.registraUsuario = functions.https.onRequest(async (req, res) => {
     await db.collection('Usuarios').doc(idUsr).set({
         'nombre' : nombre,
         'mail' : mail,
-        'serviciosFav' : false,
-        'favoritos' : [],
+        'serviciosFav' : [], 
+        'nacimiento' : nacimiento,
         'bloqueado' : false
     });
 
@@ -187,13 +188,13 @@ exports.serviciosPopulares = functions.https.onRequest(async (req, res) => {
 exports.serviciosDisponibles = functions.https.onRequest(async (req, res) => {
     //Referencia a la base de datos
     const db = admin.firestore();
-    emergencia = req.query.emergencia;
+    
     if (req.method !== 'GET') {
         //En caso que el método no sea post, se manda error
         res.send({'result' : 'error', 'message' : 'Método incorrecto.'});
         return;
     }
-
+    emergencia = req.query.emergencia;
     if(emergencia === undefined){
         res.send({'result' : 'error', 'message' : 'Faltan datos (emergencia)'});
     }
@@ -208,18 +209,26 @@ exports.serviciosDisponibles = functions.https.onRequest(async (req, res) => {
         res.send(resultados);
         return;
     }
+    console.log(emergencia);
     queryRes.forEach((doc) => {
         datos = doc.data();
-        precioV = (emergencia)? datos.precioPromE:datos.precioProm;
+        console.log(typeof(emergencia));
+        if(emergencia === 'true'){
+            precioV = datos.precioPromE;
+        } else{
+            precioV = datos.precioProm;
+        }
         cantS = (datos.cantServicios === undefined)? 0:datos.cantServicios;
         resultados.servicios.push({
             'id' : doc.id, 
-            'descripcion' : datos.descripcion,
-            'img_url' : datos.img_url,
-            'nombre' : datos.nombre,
-            'solicitudes' : datos.solicitudes,
-            'cantServicios' : cantS,
-            'precio' :  precioV
+            'data': {
+                'descripcion' : datos.descripcion,
+                'img_url' : datos.img_url,
+                'nombre' : datos.nombre,
+                'solicitudes' : datos.solicitudes,
+                'cantServicios' : cantS,
+                'precio' :  precioV
+            }
         });
     });
     res.send(resultados);
