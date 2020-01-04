@@ -17,8 +17,12 @@
     ],
     "rewrites": [
       {
-        "source": "/api/v1/**",
-        "function": "webApi"
+        "source": "/pagoRetornado",
+        "function": "pagoRetornado"
+      },
+      {
+        "source" : "/pagoCancelado",
+        "function" : "pagoCancelado"
       }
     ]
   }

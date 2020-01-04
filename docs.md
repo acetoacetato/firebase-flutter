@@ -47,6 +47,28 @@ via GET, retorna los datos del usuario especificado.
 	> **id**: id del usuario
 	> **data**: datos del usuario.
 
+
+### obtenerMetodoPago
+Retorna el número de la tarjeta asociada, sólo mostrando los últimos 4 dígitos.
+
+- Recibe:
+	> **idUsr**: el id del usuario
+- Retorna:
+	> **tarjeta** : el número de la tarjeta
+
+
+### agregaMetodoPago
+Agrega o reemplaza el método de pago de un usuario.
+
+- Recibe:
+	> **idUsr**: el id del usuario
+	> **numTarjeta** : el numero de la tarjeta
+	> **expiracion** : la fecha de expiración de la tarjeta, en formato MM/AA
+	> **cvv** : el código de seguridad de la tarjeta, no se guarda.
+- Retorna:
+	> **result** : success o error
+	> **message**
+
 ### carousel
 Retorna los datos de la cosa de arriba de la vista.
 
@@ -79,6 +101,18 @@ Recibe el UID del usuario, via GET. Retorna una lista con todos los pedidos real
 - Retorna:
 	> **servicios**: lista de servicios
   
+
+### esFavorito
+
+Retorna si un servicio fué marcado como favorito por un usuario
+
+- Recibe:
+	> **idUsr** : el id del usuario
+	> **idServ** : el id del servicio
+- Retorna:
+	> **result** : success o error
+	> **fav** : true o false 
+
 
 ### eliminaFavoritos
 

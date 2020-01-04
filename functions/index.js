@@ -1,10 +1,12 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 var serviceAccount = require("./testflutter-2a3a0-firebase-adminsdk-x5jfn-c467f7ccde.json");
+const paypalData = require("./paypal.json");
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const escapeHtml = require('escape-html');
+const paypal = require('paypal-rest-sdk');
 
 
 
@@ -21,6 +23,12 @@ const app = express();
 const main = express();
 
 app.use(cors({ origin: true }));
+
+paypal.configure({
+    'mode': 'sandbox', //sandbox or live
+    'client_id': paypalData.clientID,
+    'client_secret': paypalData.secret
+});
 
 //Función que retorna todos los registros que tengan el mismo nombre
 // que lo pasado por POST
@@ -95,6 +103,206 @@ exports.updateNumber = functions.https.onRequest(async (req, res) =>{
     
 });
 
+function actualizaTokenPayPal(){
+    cuerpo = {
+        'grant_type' : 'client_credentials'
+    }
+    auth = {
+        'user' : paypalData.clientID,
+        'pass' : paypakData.secret
+    }
+    post = {
+        'url' : 'https://api.sandbox.paypal.com/v1/oauth2/token',
+        'form' : cuerpo,
+        'auth' : auth
+    }
+    resultado = {};
+    req = request.post(post, (err, res, body) => {
+        if(err){
+            console.log('Error');
+            return;
+        }
+        resultado = body;
+        db.collection('Paypal').doc(paypalData.id_doc).set(body);
+    });
+
+    return resultado;
+
+}
+
+
+function paypalQl(){
+    
+
+    var create_payment_json = {
+        "intent": "sale",
+        "payer": {
+            "payment_method": "paypal"
+        },
+        "redirect_urls": {
+            "return_url": "https://testflutter-2a3a0.web.app/pagoRetornado",
+            "cancel_url": "https://testflutter-2a3a0.web.app/pagoCancelado"
+        },
+        "transactions": [{
+            "item_list": {
+                "items": [{
+                    "name": "nombre_servicio",
+                    "sku": "id_servicio",
+                    "price": "10.00",
+                    "currency": "USD",
+                    "quantity": 1
+                }]
+            },
+            "amount": {
+                "currency": "USD",
+                "total": "10.00"
+            },
+            "description": "descripcion_servicio."
+        }]
+    };
+    pago = {};
+    paypal.payment.create(create_payment_json, (error, payment) => {
+        if (error) {
+            console.log(error);
+            console.log(error.response.details);
+            throw error;
+        } else {
+            console.log("Create Payment Response");
+            console.log(payment);
+            pago = payment;
+        }
+    });
+
+    return pago;
+}
+
+exports.pagoPaypal = functions.https.onRequest((req, res) => {
+    datos = paypalQl();
+    res.send(datos);
+});
+
+exports.pagoRetornado = functions.https.onRequest((req, res) => {
+    console.log(req);
+    res.send("Pagado correctamente");
+})
+
+exports.pagoCancelado = functions.https.onRequest((req, res) => {
+    res.send("Pagado correctamente");
+})
+
+exports.obtenerMetodoPago = functions.https.onRequest(async (req, res) => {
+    if(req.method !== 'GET'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+        return;
+    }   
+    ({idUsr} = req.body);
+
+    if(idUsr === undefined){
+        res.send({'result' : 'error', 'message' : 'Faltan datos(idUsr, numTarjeta, expiracion, cvv)'});
+        return;
+    }
+
+    usuario = await db.collection('Usuarios').doc(idUsr).get();
+
+    if(!usuario.exists){
+        res.send({'result' : 'error', 'message' : 'Usuario no existe.'});
+        return;
+    }
+
+    if(usuario.data().tarjeta === undefined){
+        res.send({'tarjeta' : ''});
+        return;
+    }
+    nTarjeta = usuario.data().tarjeta.toString();
+    tarjetaF = nTarjeta.replace(/^[0-9]{12}/ , 'xxxxxxxxxxxx');
+    datos = {
+        'tarjeta' : tarjetaF
+    }
+});
+
+
+exports.agregaMetodoPago = functions.https.onRequest(async (req, res) => {
+    if(req.method !== 'POST'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+        return;
+    }    
+
+    //El cvv no se va a insertar en la db
+    ({idUsr} = req.body);
+    ({numTarjeta} = req.body);
+    ({expiracion} = req.body);
+    ({cvv} = req.body);
+
+    //TODO: método para validar que la tarjeta funka correctamente.
+
+    if(idUsr === undefined || numTarjeta === undefined || expiracion === undefined || cvv === undefined){
+        res.send({'result' : 'error', 'message' : 'Faltan datos(idUsr, numTarjeta, expiracion, cvv)'});
+        return;
+    }
+
+    expr = /([^0-9])/gi;
+    exprF = /(^[0-9]{2}\/[0-9]{2}$)/gi;
+
+
+    if(numTarjeta.length !== 16 || numTarjeta.match(expr) !== null){
+        res.send({'result' : 'error', 'message' : 'Num de tarjeta incorrecto.'});
+        return;
+    }
+
+    if(cvv.match(expr) !== null){
+        res.send({'result' : 'error', 'message' : 'cvv incorrecto.'});
+        return;
+    }
+
+    if(expiracion.match(exprF) === null){
+        res.send({'result' : 'error', 'message' : 'Expiración incorrecta'});
+        return;
+    }
+
+    usuario = await db.collection('Usuarios').doc(idUsr).get();
+
+    if(!usuario.exists){
+        res.send({'result' : 'error', 'message' : 'Usuario no existe.'});
+        return;
+    }
+
+    db.collection('Usuarios').doc(idUsr).update({
+        tarjeta : numTarjeta,
+        exp : expiracion
+    });
+
+    res.send({'result' : 'success', 'message' : 'Agregado pago correctamente'});
+});
+
+
+exports.actualizaDatos = functions.https.onRequest(async (req, res) => {
+    if(req.method !== 'POST'){
+        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
+        return;
+    }
+
+    ({idUsr} = req.body);
+    ({mail} = req.body);
+    ({nombre} = req.body);
+    ({nacimiento} = req.body);
+
+    if(idUsr === undefined){
+        res.send({'result' : 'error', 'message' : 'Faltan datos (idUsr)'});
+        return;
+    }
+
+    usuario = await db.collection('Usuarios').doc(idUsr).get();
+
+
+    await db.collection('Usuarios').doc(idUsr).update({
+        'mail' : mail,
+        'serviciosFav' : [], 
+        'nacimiento' : nacimiento,
+        'bloqueado' : false
+    });
+
+});
+
 
 exports.registraUsuario = functions.https.onRequest(async (req, res) => {
     if(req.method !== 'POST'){
@@ -106,27 +314,43 @@ exports.registraUsuario = functions.https.onRequest(async (req, res) => {
     ({mail} = req.body);
     ({nombre} = req.body);
     ({nacimiento} = req.body);
+    ({trabajador} = req.body);
 
 
-    if(idUsr === undefined || mail === undefined || nombre === undefined){
+    if(idUsr === undefined || mail === undefined || nombre === undefined || trabajador === undefined){
         res.send({'result' : 'error', 'message' : 'Faltan datos (idUsr, mail, nombre)'});
         return;
     }
-
     usuario = await db.collection('Usuarios').doc(idUsr).get();
-
-    if(usuario !== undefined){
+    if(usuario.exists){
         res.send({'result' : 'error', 'message' : 'Uid ya existente'});
         return;
     }
 
-    await db.collection('Usuarios').doc(idUsr).set({
-        'nombre' : nombre,
-        'mail' : mail,
-        'serviciosFav' : [], 
-        'nacimiento' : nacimiento,
-        'bloqueado' : false
-    });
+    if(!trabajador){
+        datos = {
+            'nombre' : nombre,
+            'mail' : mail,
+            'serviciosFav' : [], 
+            'nacimiento' : nacimiento,
+            'bloqueado' : false,
+            'trabajador' : trabajador
+        };
+    }else{
+        datos = {
+            'nombre' : nombre,
+            'mail' : mail,
+            'servicio' : '', 
+            'nacimiento' : nacimiento,
+            'bloqueado' : false,
+            'trabajador' : trabajador,
+            'disponible' : true, 
+            'emergencia' : false
+        };
+        
+    }
+
+    await db.collection('Usuarios').doc(idUsr).set(datos);
 
     res.send({'result' : 'success', 'message' : 'Registrado orrectamente.'});
 });
@@ -145,14 +369,25 @@ exports.datosUsuario = functions.https.onRequest(async (req, res) => {
         return;
     }
 
-    uaurio = await db.collection('Usuarios').doc(idUsr).get();
+    usuario = await db.collection('Usuarios').doc(idUsr).get();
 
-    if(usuario === undefined){
-        res.send({'result' : 'error', 'message' : 'Usuario inexistente.'});
+    if(usuario === undefined || !usuario.exists){
+        res.send({'result' : 'error', 'message' : 'Usuario inexistente en la base de datos.'});
         return;
     }
 
-    res.send({'id' : usuario.id, 'data' : usuario.data()});
+    auxData = usuario.data();
+
+    //Para quitar los datos de la tarjeta.
+    datos = {
+        'bloqueado' : auxData.bloqueado,
+        'mail' : auxData.mail,
+        'nacimiento' : auxData.nacimiento,
+        'nombre' : auxData.nombre,
+        'serviciosFav' : auxData.serviciosFav 
+    };
+
+    res.send({'id' : usuario.id, 'data' : datos});
 });
 
 
@@ -179,7 +414,20 @@ exports.serviciosPopulares = functions.https.onRequest(async (req, res) => {
         res.send(JSON.stringify(resultados));
     }
     queryRes.forEach((doc) => {
-        resultados.servicios.push({id : doc.id, data: doc.data()});
+        datos = doc.data();
+        cantS = (datos.cantServicios === undefined)? 0:datos.cantServicios;
+        precio = (datos.precioProm === undefined)? 0:datos.precioProm;
+        resultados.servicios.push({
+            'id' : doc.id, 
+            'data': {
+                'descripcion' : datos.descripcion,
+                'img_url' : datos.img_url,
+                'nombre' : datos.nombre,
+                'solicitudes' : datos.solicitudes,
+                'cantServicios' : cantS,
+                'precio' :  precio
+            }
+        });
     });
     res.send(resultados);
 
@@ -329,12 +577,44 @@ exports.historialPedidos = functions.https.onRequest(async (req, res) => {
         return;
     }else{
         queryRes.forEach( (doc) => {
+            datos = doc.data();
+            fechaN = datos.fecha;
+            datos.fecha = fechaN.toLocaleString('es-CL');
             servicios.servicios.push({"id" : doc.id, "data" : doc.data()});
         });
     }
 
     res.send(servicios);
 
+});
+
+exports.esFavorito = functions.https.onRequest(async (req, res) => {
+    if(req.method !== 'GET'){
+        res.send({'result' : 'error', 'message' : 'método incorrecto'});
+    }
+    ({idUsr} = req.body);
+    ({idServ} = req.body);
+
+    if(idUsr === null || idServ === null || direccion === null){
+        res.send({'result' : 'error', 'message' : 'faltan datos (idUsr, idServ, direccion)'});
+    }
+
+    usuario = await db.collection('Usuarios').doc(idUsr).get();
+
+    if(!usuario.exists){
+        res.send({'result' : 'error', 'message' : 'Usuario inexistente'});
+        return;
+    }
+
+    for(item in usuario.serviciosFav){
+        if(item === idServ){
+            res.send({'result' : 'success', 'fav' : true});
+            return;
+        }
+    }
+
+    res.send({'result' : 'success', 'fav' : false});
+    return;
 });
 
 // Recibe idUsr, idServ, emergencia, horario de contratacion, direccion contratador
@@ -453,7 +733,7 @@ exports.pedirServicio = functions.https.onRequest(async (req, res) => {
         flag = false;
     }
     //Como el OR no existe, compruebo si no está en camino.
-    query = db.collection('ServiciosRealizados').where('cliente', '==', idUsr).where('status', '==', 'contratado');
+    query = db.collection('ServiciosRealizados').where('cliente', '==', idUsr).where('status', '==', 'en_camino');
     queryRes = await query.get();
     if(!queryRes.empty){
         flag2 = false;
@@ -483,8 +763,13 @@ exports.cancelarServicio = functions.https.onRequest(async (req, res) => {
     
     query = db.collection('ServiciosRealizados').where('cliente', '==', idUsr).where('status', '==', 'pendiente');
     queryRes = await query.get();
+
     query2 = db.collection('ServiciosRealizados').where('cliente', '==', idUsr).where('status', '==', 'contratado');
     queryRes2 = await query2.get();
+
+    //FIXME: para cancelar un en camino
+    query3 = db.collection('ServiciosRealizados').where('cliente', '==', idUsr).where('status', '==', 'contratado');
+    queryRes3 = await query2.get();
 
     if(!queryRes.empty || !queryRes2.empty){
         var solicitud = (queryRes.empty)? queryRes2.docs[0] : queryRes.docs[0];
@@ -583,6 +868,29 @@ exports.realizarServicio = functions.https.onRequest(async (req, res) => {
 
 });
 
+exports.eliminaServicio = functions.firestore.document('Servicios/{serviceId}').onDelete(async (snap, context) => {
+    clave = snap.key();
+
+    documentos = await db.collection('Usuarios').where('servicio', '==', clave).get();
+
+    documentos.forEach(doc => {
+        usr = db.collection('Usuarios').doc(doc.id).get();
+        if(!usr.data().trabajador){
+            arreglo = usr.filter(e => e !== clave);
+            db.collection('Usuarios').doc(doc.id).update({
+                serviciosFav : arreglo
+            });
+        } else {
+            db.collection('Usuarios').doc(doc.id).update({servicio : ''});
+        }
+        
+        
+    });
+
+    return '';
+
+});
+
 
 //Recalcula los ranking
 exports.recalcula = functions.firestore.document('Servicios/{serviceId}/trabajadores/{uId}').onUpdate(async (snap, context) => {
@@ -628,57 +936,14 @@ exports.recalcula = functions.firestore.document('Servicios/{serviceId}/trabajad
     return 0;
 });
 
-/*
-exports.functionTest = functions.https.onRequest(async (req, res) => {
-    if(req.method !== 'POST'){
-        res.send({'result' : 'error', 'message' : 'Método incorrecto'});
-        return;
-    }
-    ({idServ} = req.body);
-    //El id del usuario es para confirmar que está autentificado
-    ({idUsr} = req.body);
-    if(idUsr === undefined || idServ === undefined){
-        res.send({'result' : 'error', 'message' : 'Faltan datos(idServ, idUsr)'});
-        return;
-    }
 
-    usrRef = await db.collection('Usuarios').doc(idUsr).get();
-    if(usrRef.empty){
-        res.send({'result' : 'error', 'message' : 'Usuario inexistente.'});
-        return;
-    }
-
-    docServicio = await db.collection('Servicios').doc(idServ).get();
-    docTabajadores = await db.collection('Servicios').doc(idServ).collection('trabajadores').get();
-    trabajoNuevo = await db.collection('Servicios').doc(idServ).collection('trabajadores').doc(idUsr).get();
-
-    cantSer = docServicio.data().cantServicios;
-    precioP = docServicio.data().precioProm;
-    precioPE = docServicio.data().precioPromEmergencia
-
-    precioPromN = ((precioP * cantSer) + trabajoNuevo.data().precioVisita) / (cantServ + 1);
-    precioPromEmerN = ((precioPE * cantSer) + trabajoNuevo.data().precioEmer) / (cantServ + 1);
-    // Se actualizan los precios promedios y la cantidad de servicios.
-    await db.collection('Servicios').doc(idServ).update({
-        precioProm : precioPromN,
-        precioPromEmergencia : precioPromEmerN,
-        cantServicios : cantSer + 1
-    });
-    //Se actualizan todos los puntajes.
-    docTabajadores.forEach(doc => {
-        db.collection('Servicios').doc(idServ).collection('trabajadores').doc(doc.id).update({
-            ranking : doc.data().calificacion + precioPromN/doc.data().precioVisita
-        });
-    });
-
-});*/
 
 exports.trabajosPendientes = functions.https.onRequest(async (req, res) => {
     if(req.method !== 'GET'){
         res.send({'result' : 'error', 'message' : 'Método incorrecto'});
         return;
     }
-    ({idUsr} = req.body);
+    idUsr = req.query.idUsr;
     if(idUsr === undefined){
         res.send({'result' : 'error', 'message' : 'Faltan datos (idUsr)'});
         return;
@@ -689,7 +954,10 @@ exports.trabajosPendientes = functions.https.onRequest(async (req, res) => {
     coleccion = await db.collection('ServiciosRealizados').where('trabajador', '==', idUsr).where('status', '==', 'contratado').get();
 
     coleccion.forEach(doc => {
-        trabajos.trabajos.push({'id' : doc.id, 'data' : doc.data()});
+        datos = doc.data();
+        fechaN = new Date(datos.fecha._seconds * 1000);
+        datos.fecha = fechaN.toLocaleString('es-CL');
+        trabajos.trabajos.push({'id' : doc.id, 'data' : datos});
     });
 
     res.send(trabajos);
@@ -801,8 +1069,10 @@ exports.buscarTrabajo = functions.https.onRequest(async (req, res) => {
     }
 
     solicitud = solicitudes.docs[0];
-
-    res.send({ 'id' : solicitud.id, 'data' : solicitud.data()});
+    datos = solicitud.data();
+    fechaN = new Date(datos.fecha._seconds * 1000);
+    datos.fecha = fechaN.toLocaleString('es-CL');
+    res.send({ 'id' : solicitud.id, 'data' : datos});
 });
 
 
@@ -1040,11 +1310,11 @@ exports.verSolicitud = functions.https.onRequest(async (req, res) => {
     status = docRef.data().status;
 
     if(status === 'rechazado' || status === 'pendiente'){
-        res.send({'retult' : 'success', status : 'pendiente'});
+        res.send({'result' : 'success', status : 'pendiente'});
         return;
     }
 
-    res.send({'status' : status});
+    res.send({'result' : 'success', 'status' : status});
 });
 
 
