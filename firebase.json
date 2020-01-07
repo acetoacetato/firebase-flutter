@@ -13,16 +13,13 @@
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "**/config.js/**"
     ],
     "rewrites": [
       {
-        "source": "/pagoRetornado",
-        "function": "pagoRetornado"
-      },
-      {
-        "source" : "/pagoCancelado",
-        "function" : "pagoCancelado"
+        "source": "**",
+        "destination" : "/adminfixy/index.html"        
       }
     ]
   }

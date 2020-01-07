@@ -195,7 +195,7 @@ exports.obtenerMetodoPago = functions.https.onRequest(async (req, res) => {
         res.send({'result' : 'error', 'message' : 'Método incorrecto'});
         return;
     }   
-    ({idUsr} = req.body);
+    idUsr = req.query.idUsr;
 
     if(idUsr === undefined){
         res.send({'result' : 'error', 'message' : 'Faltan datos(idUsr, numTarjeta, expiracion, cvv)'});
@@ -218,6 +218,8 @@ exports.obtenerMetodoPago = functions.https.onRequest(async (req, res) => {
     datos = {
         'tarjeta' : tarjetaF
     }
+
+    res.send(datos);
 });
 
 
@@ -327,6 +329,15 @@ exports.registraUsuario = functions.https.onRequest(async (req, res) => {
         return;
     }
 
+    if(trabajador === 'true'){
+        trabajador = true;
+    } else if(trabajador === 'false'){
+        trabajador = false;
+    } else {
+        res.send({'result' : 'error', 'message' : 'Valor de "trabajador" incorrecto (true, false)'});
+        return;
+    }
+
     if(!trabajador){
         datos = {
             'nombre' : nombre,
@@ -384,7 +395,11 @@ exports.datosUsuario = functions.https.onRequest(async (req, res) => {
         'mail' : auxData.mail,
         'nacimiento' : auxData.nacimiento,
         'nombre' : auxData.nombre,
-        'serviciosFav' : auxData.serviciosFav 
+        'serviciosFav' : auxData.serviciosFav,
+        'trabajador' : auxData.trabajador,
+        'servicio' : auxData.servicio,
+        'disponible' : auxData.disponible,
+        'emergencia' : auxData.emergencia
     };
 
     res.send({'id' : usuario.id, 'data' : datos});
@@ -495,7 +510,7 @@ exports.agregaFavoritos = functions.https.onRequest(async (req, res) => {
     if(idUsr === null || idServ === null){
         res.send({'result' : 'error', 'message' : 'Faltan datos'});
     }
-
+    datoServ = await db.collection('Servicios').doc(idServ).get();
     var query = await db.collection('Usuarios').doc(idUsr).update({
         serviciosFav: admin.firestore.FieldValue.arrayUnion(idServ)
     }).catch(err => { res.send(err) });
@@ -540,19 +555,28 @@ exports.verFavoritos = functions.https.onRequest(async (req, res) => {
         return;
     }
 
-    favoritos = {'favoritos' : []};
+    favoritos = {serviciosFav: []};
+    documentos = []
 
-    coleccion = await db.collection(idUsr).get();
-    favs = coleccion.data().favoritos;
+    //Esta linea es un error peor que mi existencia
+    //TODO: eliminar esta atrocidad
+    coleccion = await  db.collection('Usuarios').doc(idUsr).get().then(data => {return data}).catch(err => console.log(err));
+    favs = coleccion.data().serviciosFav;
+    console.log(favs);
 
-    favs.forEach(id => {
-        db.collection('Servicios').doc(id).get().then(result => {
-            favoritos.favoritos.push({'id' : id, 'data' : datos.data()});
-            return "";
-        }).catch(err => { res.send(err) });        
-    });
+    //Recordar: await no se puede usar en loops uwu, ESLint me pega si lo hago
+    for(id of favs){
+        documentos.push(db.collection('Servicios').doc(id).get());
+    }
 
-    res.send(favs);
+    //Con esto espero a que se cumplan todas las promesas
+    datitos = await Promise.all(documentos);
+
+    datitos.forEach(doc => {
+        favoritos.serviciosFav.push({'id' : doc.id, 'data' : doc.data()});
+    })
+    console.log(favoritos);
+    res.send(favoritos);
 });
 
 
@@ -631,6 +655,8 @@ exports.pedirServicio = functions.https.onRequest(async (req, res) => {
     ({direccion} = req.body);
     ({emergencia} = req.body);
 
+    direccion.replace(/ /g,'%20');
+
     //Es emergencia, se pone de hora 
     if( emergencia === undefined){
         emergencia = false;
@@ -672,6 +698,14 @@ exports.pedirServicio = functions.https.onRequest(async (req, res) => {
         return;
     }
 
+    //Armar la url de esta cosa
+    key = 'key=' + serviceAccount.api_key_maps;
+    size = '&size=350x450';
+    markers = '&markers=color:red|' + direccion;
+
+    url = 'https://maps.googleapis.com/maps/api/staticmap?' + key + size + markers;
+
+
     // Se forma el json a agregar eventualmente
     var jsonServicio = {
         'calificacion' : 0.0,
@@ -681,7 +715,8 @@ exports.pedirServicio = functions.https.onRequest(async (req, res) => {
         'trabajador' : propuesto.id,
         'emergencia' : emergencia,
         'precio' : 0,
-        'fecha' : horaServ
+        'fecha' : horaServ,
+        'img_url' : url
     }
     var flag = true;
     var flag2 = true;
